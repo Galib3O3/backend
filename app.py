@@ -1,61 +1,73 @@
-# app.py
-from flask import Flask, request, send_file
-from rembg import remove
-from PIL import Image
+# image-bg-remover-backend/app.py
+
+import os
+from flask import Flask, request, jsonify, send_file
+from flask_cors import CORS
+from rembg import remove, new_session # rembg লাইব্রেরি
+from PIL import Image # Pillow ইমেজ প্রসেসিং এর জন্য
 import io
-from flask_cors import CORS # CORS হ্যান্ডেল করার জন্য
 
 app = Flask(__name__)
-CORS(app) # CORS সক্ষম করুন যাতে আপনার React অ্যাপ এটি অ্যাক্সেস করতে পারে
 
-@app.route('/')
-def home():
-    """হোম রুট, সার্ভার চলছে কিনা তা পরীক্ষা করার জন্য।"""
-    return "Flask Background Remover Backend is running!"
+# CORS সেটআপ: আপনার ফ্রন্টএন্ডের URL গুলো এখানে যোগ করুন
+# Render এ deploy হওয়ার পর এটি আপনার Netlify App এর URL থেকে রিকোয়েস্ট গ্রহণ করবে
+cors_origins = [       # লোকাল ডেভেলপমেন্টের জন্য
+    "https://toolsgovt.netlify.app" # <-- আপনার Netlify ফ্রন্টএন্ড URL এখানে যোগ করুন
+    # যদি আপনার ফ্রন্টএন্ড অন্য কোনো URL এ হোস্ট করা হয়, সেগুলো এখানে যোগ করুন
+]
+CORS(app, resources={r"/*": {"origins": cors_origins}}) # সকল রুটের জন্য CORS
 
-@app.route('/remove-bg', methods=['POST'])
+# rembg মডেল লোড করুন (একবার লোড করলে দ্রুত হবে)
+# বিভিন্ন মডেল আছে, যেমন 'u2net', 'u2net_human_seg', 'u2net_cloth_seg', 'silueta', 'isnet-general-use'
+# 'u2net' একটি সাধারণ এবং ভালো কাজ করে।
+session = new_session("u2net") 
+
+# রুট: /remove-background (POST রিকোয়েস্ট হ্যান্ডেল করবে)
+@app.route('/remove-background', methods=['POST'])
 def remove_background():
-    """
-    ছবি থেকে ব্যাকগ্রাউন্ড সরানোর জন্য API এন্ডপয়েন্ট।
-    React ফ্রন্টএন্ড থেকে ছবি ফাইল গ্রহণ করে এবং স্বচ্ছ ব্যাকগ্রাউন্ড সহ ছবি ফেরত দেয়।
-    """
-    if 'image_file' not in request.files:
-        return {"error": "কোনো 'image_file' পাওয়া যায়নি"}, 400
+    if 'image' not in request.files:
+        return jsonify({"error": "No image file provided"}), 400
 
-    image_file = request.files['image_file']
+    image_file = request.files['image']
+    
+    if image_file.filename == '':
+        return jsonify({"error": "No selected file"}), 400
 
-    if not image_file.filename:
-        return {"error": "কোনো ফাইল নাম নেই"}, 400
+    if image_file:
+        try:
+            # ইনপুট ইমেজ ডেটা পড়ুন
+            input_image_bytes = image_file.read()
+            input_image = Image.open(io.BytesIO(input_image_bytes)).convert("RGBA")
 
-    try:
-        # ইনপুট ছবি ডেটা পড়ুন
-        input_image_data = image_file.read()
+            # rembg ব্যবহার করে ব্যাকগ্রাউন্ড সরান
+            output_image = remove(input_image, session=session)
 
-        # rembg ব্যবহার করে ব্যাকগ্রাউন্ড সরান
-        output_image_data = remove(input_image_data)
+            # আউটপুট ইমেজকে bytes এ কনভার্ট করুন
+            output_image_bytes_io = io.BytesIO()
+            output_image.save(output_image_bytes_io, format="PNG")
+            output_image_bytes_io.seek(0) # বাইটস্ট্রিম শুরুতে নিয়ে আসা
 
-        # PIL (Pillow) ব্যবহার করে ছবি মেমরি থেকে লোড করুন এবং PNG ফরম্যাটে সেভ করুন
-        # rembg সাধারণত PNG ফরম্যাটে স্বচ্ছতা সহ আউটপুট দেয়
-        output_image_pil = Image.open(io.BytesIO(output_image_data))
-        
-        # আউটপুট PNG ডেটা মেমরি বাফারে সেভ করুন
-        img_byte_arr = io.BytesIO()
-        output_image_pil.save(img_byte_arr, format='PNG')
-        img_byte_arr.seek(0) # বাফারের শুরু থেকে পড়ুন
+            # ইমেজ ফাইল হিসাবে ফেরত পাঠান
+            return send_file(
+                output_image_bytes_io,
+                mimetype="image/png",
+                as_attachment=False, # ব্রাউজারে সরাসরি ইমেজ দেখানোর জন্য
+                download_name="no_background.png"
+            )
 
-        # ক্লায়েন্টে প্রসেস করা ছবি পাঠান
-        return send_file(
-            img_byte_arr,
-            mimetype='image/png',
-            as_attachment=False, # ব্রাউজারে সরাসরি দেখানোর জন্য
-            download_name='no-bg.png'
-        )
+        except Exception as e:
+            print(f"Error during background removal: {e}")
+            return jsonify({"error": f"Error processing image: {str(e)}"}), 500
+    
+    return jsonify({"error": "Something went wrong"}), 500
 
-    except Exception as e:
-        print(f"ব্যাকগ্রাউন্ড সরানোর সময় ত্রুটি: {e}")
-        return {"error": f"ব্যাকগ্রাউন্ড সরানোর সময় একটি অভ্যন্তরীণ ত্রুটি হয়েছে: {str(e)}"}, 500
-
+# লোকাল ডেভেলপমেন্টের জন্য সার্ভার চালু
+# Render এ deploy করার সময় এটি gunicorn দ্বারা প্রতিস্থাপিত হবে
 if __name__ == '__main__':
-    # Flask ডেভেলপমেন্ট সার্ভার রান করুন
-    # প্রোডাকশনের জন্য, Gunicorn বা Nginx এর মতো একটি WSGI সার্ভার ব্যবহার করা উচিত।
-    app.run(debug=True, port=5000) # পোর্ট 5000 এ রান হবে
+    from dotenv import load_dotenv
+    load_dotenv() # লোকালি .env ফাইল লোড করবে
+    
+    # Render পরিবেশ থেকে PORT পাবে, না হলে 5000 ব্যবহার করবে
+    port = int(os.environ.get('PORT', 5000))
+    print(f"Server running on http://0.0.0.0:{port}")
+    app.run(host='0.0.0.0', port=port, debug=True)
