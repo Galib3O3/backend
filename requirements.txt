@@ -1,6 +1,6 @@
 Flask
 Flask-Cors
-rembg
+rembg[cpu]
 Pillow
 onnxruntime
 gunicorn # প্রোডাকশন সার্ভার হিসেবে Gunicorn ব্যবহার করা হবে
