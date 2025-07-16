@@ -11,7 +11,8 @@ app = Flask(__name__)
 
 # CORS সেটআপ: আপনার ফ্রন্টএন্ডের URL গুলো এখানে যোগ করুন
 # Render এ deploy হওয়ার পর এটি আপনার Netlify App এর URL থেকে রিকোয়েস্ট গ্রহণ করবে
-cors_origins = [       # লোকাল ডেভেলপমেন্টের জন্য
+cors_origins = [   
+     "http://localhost:5173",  # লোকাল ডেভেলপমেন্টের জন্য
     "https://toolsgovt.netlify.app" # <-- আপনার Netlify ফ্রন্টএন্ড URL এখানে যোগ করুন
     # যদি আপনার ফ্রন্টএন্ড অন্য কোনো URL এ হোস্ট করা হয়, সেগুলো এখানে যোগ করুন
 ]
