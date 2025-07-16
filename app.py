@@ -1,74 +1,59 @@
-# image-bg-remover-backend/app.py
+# my-python-backend/app.py
 
 import os
 from flask import Flask, request, jsonify, send_file
 from flask_cors import CORS
-from rembg import remove, new_session # rembg লাইব্রেরি
-from PIL import Image # Pillow ইমেজ প্রসেসিং এর জন্য
+from rembg import remove, new_session 
+from PIL import Image 
 import io
+import datetime
+import pytz 
+import sys # sys মডিউল ইম্পোর্ট করুন
 
 app = Flask(__name__)
 
-# CORS সেটআপ: আপনার ফ্রন্টএন্ডের URL গুলো এখানে যোগ করুন
-# Render এ deploy হওয়ার পর এটি আপনার Netlify App এর URL থেকে রিকোয়েস্ট গ্রহণ করবে
-cors_origins = [   
-     "http://localhost:5173",  # লোকাল ডেভেলপমেন্টের জন্য
-    "https://toolsgovt.netlify.app" # <-- আপনার Netlify ফ্রন্টএন্ড URL এখানে যোগ করুন
-    # যদি আপনার ফ্রন্টএন্ড অন্য কোনো URL এ হোস্ট করা হয়, সেগুলো এখানে যোগ করুন
+# CORS সেটআপ
+cors_origins = [
+    "http://localhost:5173",        
+    "https://toolsgovt.netlify.app" # আপনার Netlify ফ্রন্টএন্ড URL
 ]
-CORS(app, resources={r"/*": {"origins": cors_origins}}) # সকল রুটের জন্য CORS
+CORS(app, resources={r"/*": {"origins": cors_origins}})
 
-# rembg মডেল লোড করুন (একবার লোড করলে দ্রুত হবে)
-# বিভিন্ন মডেল আছে, যেমন 'u2net', 'u2net_human_seg', 'u2net_cloth_seg', 'silueta', 'isnet-general-use'
-# 'u2net' একটি সাধারণ এবং ভালো কাজ করে।
-session = new_session("u2net") 
+# --- ডিবাগ প্রিন্ট স্টেটমেন্ট এবং ত্রুটি হ্যান্ডলিং যোগ করুন ---
+print("--- Starting app.py ---")
+print(f"Flask app name: {app.name}")
+print(f"Current working directory: {os.getcwd()}")
+print(f"PORT environment variable: {os.environ.get('PORT')}")
 
-# রুট: /remove-background (POST রিকোয়েস্ট হ্যান্ডেল করবে)
+session = None # সেশন ভেরিয়েবলটি গ্লোবালি ইনিশিয়ালাইজ করুন
+try:
+    print("Attempting to load rembg session (u2net model)...")
+    session = new_session("u2net")
+    print("Rembg session loaded successfully.")
+except Exception as e:
+    print(f"!!! CRITICAL ERROR: Failed to load rembg session: {e}", file=sys.stderr) # ত্রুটি স্ট্যান্ডার্ড এরর এ প্রিন্ট করুন
+    print("!!! This means the app cannot start. Exiting...", file=sys.stderr)
+    sys.exit(1) # অ্যাপটি সাথে সাথে বন্ধ করে দিন যাতে Render ত্রুটিটি ধরতে পারে
+
+# --- আপনার রুট এবং ফাংশনগুলো ---
 @app.route('/remove-background', methods=['POST'])
 def remove_background():
+    # ... (আগের কোড অপরিবর্তিত থাকবে) ...
     if 'image' not in request.files:
         return jsonify({"error": "No image file provided"}), 400
+    # ...
+    try:
+        # ... (আগের কোড) ...
+        output_image = remove(input_image, session=session) # এখানে session ব্যবহার করুন
+        # ... (আগের কোড) ...
+    except Exception as e:
+        print(f"Error during background removal: {e}")
+        return jsonify({"error": f"Error processing image: {str(e)}"}), 500
 
-    image_file = request.files['image']
-    
-    if image_file.filename == '':
-        return jsonify({"error": "No selected file"}), 400
-
-    if image_file:
-        try:
-            # ইনপুট ইমেজ ডেটা পড়ুন
-            input_image_bytes = image_file.read()
-            input_image = Image.open(io.BytesIO(input_image_bytes)).convert("RGBA")
-
-            # rembg ব্যবহার করে ব্যাকগ্রাউন্ড সরান
-            output_image = remove(input_image, session=session)
-
-            # আউটপুট ইমেজকে bytes এ কনভার্ট করুন
-            output_image_bytes_io = io.BytesIO()
-            output_image.save(output_image_bytes_io, format="PNG")
-            output_image_bytes_io.seek(0) # বাইটস্ট্রিম শুরুতে নিয়ে আসা
-
-            # ইমেজ ফাইল হিসাবে ফেরত পাঠান
-            return send_file(
-                output_image_bytes_io,
-                mimetype="image/png",
-                as_attachment=False, # ব্রাউজারে সরাসরি ইমেজ দেখানোর জন্য
-                download_name="no_background.png"
-            )
-
-        except Exception as e:
-            print(f"Error during background removal: {e}")
-            return jsonify({"error": f"Error processing image: {str(e)}"}), 500
-    
-    return jsonify({"error": "Something went wrong"}), 500
-
-# লোকাল ডেভেলপমেন্টের জন্য সার্ভার চালু
-# Render এ deploy করার সময় এটি gunicorn দ্বারা প্রতিস্থাপিত হবে
+# লোকাল ডেভেলপমেন্টের জন্য
 if __name__ == '__main__':
     from dotenv import load_dotenv
-    load_dotenv() # লোকালি .env ফাইল লোড করবে
-    
-    # Render পরিবেশ থেকে PORT পাবে, না হলে 5000 ব্যবহার করবে
+    load_dotenv()
     port = int(os.environ.get('PORT', 5000))
-    print(f"Server running on http://0.0.0.0:{port}")
+    print(f"Local server running on http://0.0.0.0:{port}")
     app.run(host='0.0.0.0', port=port, debug=True)
